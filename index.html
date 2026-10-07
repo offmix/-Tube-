@@ -1900,25 +1900,6 @@
       "完全", "無料", "ライブ", "shorts", "youtube", "youtu", "さん", "これ", "それ",
       "ため", "よう", "こと", "もの", "する", "なる", "できる", "について"
     ]);
-    const RELATED_RECOMMENDATION_GROUPS = [
-      { match: /猫|ねこ|ネコ|cat/i, queries: ["猫カフェ", "猫と犬", "犬 ペット"] },
-      { match: /犬|いぬ|イヌ|dog/i, queries: ["犬 動物", "猫カフェ", "猫と犬"] },
-      { match: /車|自動車|カー|car|ドライブ/i, queries: ["車 レース", "レース映像", "モータースポーツ", "F1 レース"] },
-      { match: /レース|モータースポーツ|F1|ラリー/i, queries: ["レース映像", "車 レース", "モータースポーツ"] }
-    ];
-
-    function relatedRecommendationQueries() {
-      const historyText = [
-        ...readSearchHistory(),
-        ...readHistory().slice(0, 12).flatMap((item) => [item.title, item.description])
-      ].join(" ");
-      const related = [];
-      for (const group of RELATED_RECOMMENDATION_GROUPS) {
-        if (group.match.test(historyText)) related.push(...group.queries);
-      }
-      return [...new Set(related)];
-    }
-
     function recommendationTokens(text) {
       const plain = String(text || "")
         .replace(/<[^>]*>/g, " ")
@@ -1950,7 +1931,7 @@
         .sort((a, b) => b[1] - a[1])
         .map(([token]) => token)
         .slice(0, 8);
-      return [...new Set([...relatedRecommendationQueries(), ...titlePhrases, ...rankedTokens])]
+      return [...new Set([...titlePhrases, ...rankedTokens])]
         .filter((query) => query.trim().length >= 2)
         .slice(0, 4);
     }
