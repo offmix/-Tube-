@@ -928,6 +928,7 @@
     <symbol id="i-search" viewBox="0 0 24 24"><path d="m20.1 18.7-4.5-4.5a7.3 7.3 0 1 0-1.4 1.4l4.5 4.5 1.4-1.4zM5.3 10.4a5.1 5.1 0 1 1 10.2 0 5.1 5.1 0 0 1-10.2 0z"/></symbol>
     <symbol id="i-home" viewBox="0 0 24 24"><path d="m12 3 9 7v10a1 1 0 0 1-1 1h-5v-6H9v6H4a1 1 0 0 1-1-1V10l9-7z"/></symbol>
     <symbol id="i-compass" viewBox="0 0 24 24"><path d="M12 2a10 10 0 1 0 0 20 10 10 0 0 0 0-20zm3.9 6.1-1.8 4.2-4.2 1.8 1.8-4.2 4.2-1.8zM12 20a8 8 0 1 1 0-16 8 8 0 0 1 0 16z"/></symbol>
+    <symbol id="i-news" viewBox="0 0 24 24"><path d="M5 3h14a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H5a3 3 0 0 1-3-3V6a3 3 0 0 1 3-3zm0 2a1 1 0 0 0-1 1v12a1 1 0 0 0 1 1h14V5H5zm2 3h4v4H7V8zm6 0h4v2h-4V8zm0 4h4v2h-4v-2zm-6 2h4v2H7v-2z"/></symbol>
     <symbol id="i-library" viewBox="0 0 24 24"><path d="M4 4h3v16H4V4zm5 0h3v16H9V4zm5.2.2 2.9-.7 3.7 15.6-2.9.7-3.7-15.6z"/></symbol>
     <symbol id="i-history" viewBox="0 0 24 24"><path d="M12 4a8 8 0 1 1-6.3 3.1L4 5.5V11h5.5L7 8.5A6 6 0 1 0 12 6v2l4 3-4 3v-2.2A4 4 0 1 1 8.4 8.4L12 12V4z"/></symbol>
     <symbol id="i-users" viewBox="0 0 24 24"><path d="M16 11a4 4 0 1 0-3.9-4.8A4 4 0 0 0 16 11zm-8 0a3 3 0 1 0 0-6 3 3 0 0 0 0 6zm8 2c-2.7 0-5 1.4-5 3.2V19h10v-2.8c0-1.8-2.3-3.2-5-3.2zM8 13c-2.2 0-4 1.1-4 2.5V18h5v-1.8c0-1.2.5-2.2 1.4-3A5.8 5.8 0 0 0 8 13z"/></symbol>
@@ -977,6 +978,7 @@
         <div class="nav-section">
           <button class="nav-item active" data-route="home" type="button"><svg class="icon"><use href="#i-home"></use></svg><span class="nav-label">ホーム</span></button>
           <button class="nav-item" data-route="trending" type="button"><svg class="icon"><use href="#i-compass"></use></svg><span class="nav-label">急上昇</span></button>
+          <button class="nav-item" data-route="news" type="button"><svg class="icon"><use href="#i-news"></use></svg><span class="nav-label">ニュース</span></button>
         </div>
         <div class="nav-section">
           <div class="nav-heading">ライブラリ</div>
@@ -1149,10 +1151,10 @@
       <div class="settings-group">
         <div class="settings-row">
           <div>
-            <span class="settings-label">履歴に基づくおすすめ</span>
-            <p class="settings-help">視聴した動画のタイトル・概要と検索履歴から単語を抽出し、複数の検索結果をホームに混ぜます。</p>
+            <span class="settings-label">おすすめ＋</span>
+            <p class="settings-help">視聴・検索履歴に近い未視聴動画を、複数のチャンネルからおすすめします。</p>
           </div>
-          <label class="switch" aria-label="履歴に基づくおすすめ">
+          <label class="switch" aria-label="おすすめ＋">
             <input id="personalizedRecommendationsToggle" type="checkbox">
             <span class="switch-track"></span>
           </label>
@@ -1483,10 +1485,26 @@
         type: item.type || "",
         viewCount: item.viewCount || item.views || 0,
         publishedText: item.publishedText || "",
+        published: item.published ?? item.publishedTimestamp ?? item.publishedAt ?? item.uploadDate ?? item.publishedDate ?? null,
         lengthSeconds: item.lengthSeconds || item.length || 0,
         videoThumbnails: item.videoThumbnails || [],
         description: item.description || item.descriptionText || item.descriptionHtml || ""
       };
+    }
+
+    function publishedAtMs(item) {
+      const raw = item?.published ?? item?.publishedTimestamp ?? item?.publishedAt
+        ?? item?.uploadDate ?? item?.publishedDate ?? null;
+      if (raw === null || raw === undefined || raw === "") return NaN;
+      const numeric = Number(raw);
+      if (Number.isFinite(numeric)) return numeric < 100000000000 ? numeric * 1000 : numeric;
+      return Date.parse(String(raw));
+    }
+
+    function isRecentNewsItem(item, now = Date.now()) {
+      const publishedAt = publishedAtMs(item);
+      const thirtyDays = 30 * 24 * 60 * 60 * 1000;
+      return Number.isFinite(publishedAt) && publishedAt <= now && now - publishedAt <= thirtyDays;
     }
 
     function thumbnail(item) {
@@ -1623,7 +1641,9 @@
       let data = await api(withPage(state.lastPath, page));
       let items = Array.isArray(data) ? data : (data.videos || data.items || []);
       const before = state.homePool.length;
-      addHomeToPool(withoutLive(items));
+      addHomeToPool(state.route === "news"
+        ? uniqueVideoItems(items.filter(isRecentNewsItem))
+        : withoutLive(items));
       if (state.homePool.length === before && state.lastPath.startsWith("trending")) {
         data = await api(`search?q=${encodeURIComponent("おすすめ")}&type=video&page=${page}`);
         items = Array.isArray(data) ? data : (data.videos || data.items || []);
@@ -1634,7 +1654,7 @@
     }
 
     async function loadMoreHome() {
-      if (!["home", "channel"].includes(state.route) || state.homeLoading) return;
+      if (!["home", "news", "channel"].includes(state.route) || state.homeLoading) return;
       state.homeLoading = true;
       $("#loadMoreButton").disabled = true;
       $("#loadMoreButton").textContent = "読み込み中…";
@@ -1728,9 +1748,9 @@
       dashboard.classList.remove("hidden");
     }
 
-    async function loadHome(path = "trending?region=JP", heading = "おすすめの動画", hash = null) {
+    async function loadHome(path = "trending?region=JP", heading = "おすすめの動画", hash = null, newsMode = false) {
       stopPlayback();
-      state.route = "home";
+      state.route = newsMode ? "news" : "home";
       $("#clearHistoryButton").classList.add("hidden");
       state.watchPlaylistId = null;
       state.channelData = null;
@@ -1752,9 +1772,28 @@
       renderSkeleton(20);
       try {
         const data = await api(path);
-        const items = Array.isArray(data) ? data : (data.videos || data.items || []);
-        state.lastItems = uniqueVideoItems(items);
-        if (!state.lastItems.length && path.startsWith("trending")) {
+        let items = Array.isArray(data) ? data : (data.videos || data.items || []);
+        let loadedPage = 1;
+        if (newsMode) {
+          let recentItems = uniqueVideoItems(items.filter(isRecentNewsItem));
+          for (let page = 2; page <= 4 && recentItems.length < 20; page += 1) {
+            try {
+              const nextData = await api(withPage(path, page));
+              const nextItems = Array.isArray(nextData) ? nextData : (nextData.videos || nextData.items || []);
+              recentItems = uniqueVideoItems([...recentItems, ...nextItems.filter(isRecentNewsItem)]);
+              loadedPage = page;
+            } catch (error) {
+              if (error.name === "AbortError") throw error;
+              break;
+            }
+          }
+          state.lastItems = recentItems;
+          state.homePage = loadedPage;
+          $("#pageSubheading").textContent = "投稿日時が直近30日以内の動画のみ表示";
+        } else {
+          state.lastItems = uniqueVideoItems(items);
+        }
+        if (!newsMode && !state.lastItems.length && path.startsWith("trending")) {
           try {
             const fallback = await api("search?q=%E9%9F%B3%E6%A5%BD&type=video&region=JP");
             const fallbackItems = Array.isArray(fallback) ? fallback : (fallback.videos || fallback.items || []);
@@ -1769,10 +1808,10 @@
             const queries = personalizedItems.lastQueries || [];
             if (recommendations.length) {
               state.lastItems = recommendations;
-              $("#pageHeading").textContent = "あなたへのおすすめ";
+              $("#pageHeading").textContent = "おすすめ＋";
               $("#pageSubheading").textContent = queries.length
-                ? `視聴・検索履歴から${queries.length}個の単語で検索した動画を含みます`
-                : "視聴・検索履歴をもとにしたおすすめ";
+                ? `履歴に関連する未視聴動画を${queries.length}種類の検索語から表示`
+                : "視聴・検索履歴をもとにした未視聴動画";
             }
           }
         }
@@ -1784,6 +1823,10 @@
         if (error.name === "AbortError") return;
         showEmpty("動画を取得できません", "接続先を自動で切り替えましたが、現在応答するインスタンスがありません。");
       }
+    }
+
+    function loadNews() {
+      return loadHome("search?q=%E3%83%8B%E3%83%A5%E3%83%BC%E3%82%B9&type=video&region=JP", "ニュース", "#news", true);
     }
 
     function readSearchHistory() {
@@ -1857,6 +1900,24 @@
       "完全", "無料", "ライブ", "shorts", "youtube", "youtu", "さん", "これ", "それ",
       "ため", "よう", "こと", "もの", "する", "なる", "できる", "について"
     ]);
+    const RELATED_RECOMMENDATION_GROUPS = [
+      { match: /猫|ねこ|ネコ|cat/i, queries: ["猫カフェ", "猫と犬", "犬 ペット"] },
+      { match: /犬|いぬ|イヌ|dog/i, queries: ["犬 動物", "猫カフェ", "猫と犬"] },
+      { match: /車|自動車|カー|car|ドライブ/i, queries: ["車 レース", "レース映像", "モータースポーツ", "F1 レース"] },
+      { match: /レース|モータースポーツ|F1|ラリー/i, queries: ["レース映像", "車 レース", "モータースポーツ"] }
+    ];
+
+    function relatedRecommendationQueries() {
+      const historyText = [
+        ...readSearchHistory(),
+        ...readHistory().slice(0, 12).flatMap((item) => [item.title, item.description])
+      ].join(" ");
+      const related = [];
+      for (const group of RELATED_RECOMMENDATION_GROUPS) {
+        if (group.match.test(historyText)) related.push(...group.queries);
+      }
+      return [...new Set(related)];
+    }
 
     function recommendationTokens(text) {
       const plain = String(text || "")
@@ -1889,7 +1950,7 @@
         .sort((a, b) => b[1] - a[1])
         .map(([token]) => token)
         .slice(0, 8);
-      return [...new Set([...titlePhrases, ...rankedTokens])]
+      return [...new Set([...relatedRecommendationQueries(), ...titlePhrases, ...rankedTokens])]
         .filter((query) => query.trim().length >= 2)
         .slice(0, 4);
     }
@@ -1910,7 +1971,27 @@
         } catch (_) {}
       }
       personalizedItems.lastQueries = queries;
-      return uniqueVideoItems([...historyItems, ...seedItems]);
+      const unseen = uniqueVideoItems([...historyItems, ...seedItems], historyVideoIds);
+      return diversifyRecommendations(unseen);
+    }
+
+    function diversifyRecommendations(items) {
+      const channels = new Map();
+      for (const item of uniqueVideoItems(items)) {
+        const normalized = normalizeItem(item);
+        const channelKey = String(normalized.authorId || normalized.author || normalized.videoId).trim().toLowerCase();
+        if (!channels.has(channelKey)) channels.set(channelKey, []);
+        channels.get(channelKey).push(item);
+      }
+      const diversified = [];
+      const queues = [...channels.values()];
+      const rounds = Math.max(0, ...queues.map((queue) => queue.length));
+      for (let round = 0; round < rounds; round += 1) {
+        for (const queue of queues) {
+          if (queue[round]) diversified.push(queue[round]);
+        }
+      }
+      return diversified;
     }
 
     function isHikakinVideo(item) {
@@ -2851,6 +2932,7 @@
       const watch = hash.match(/^#watch=(.+)$/);
       const searchMatch = hash.match(/^#search=(.+)$/);
       const channelMatch = hash.match(/^#channel=([^&]+)(?:&tab=([^&]+))?$/);
+      if (hash === "#news") return loadNews();
       if (watch) return openVideo(decodeURIComponent(watch[1]));
       if (searchMatch) return search(decodeURIComponent(searchMatch[1]));
       if (channelMatch) return openChannel(decodeURIComponent(channelMatch[1]), "", "チャンネル", decodeURIComponent(channelMatch[2] || "home"));
@@ -2908,6 +2990,7 @@
       ? openVideo(state.currentVideo.videoId)
       : state.route === "playlists" ? loadPlaylists()
       : state.route === "channel" ? openChannel(state.channelId, state.channelUrl, state.channelAuthor)
+      : state.route === "news" ? loadNews()
       : loadHome(state.lastPath, $("#pageHeading").textContent));
     $("#backButton").addEventListener("click", () => { history.pushState(null, "", "#home"); loadHome(); });
     $("#clearHistoryButton").addEventListener("click", clearHistory);
@@ -3023,6 +3106,7 @@
       if (route === "history") return loadHistory();
       if (route === "playlists") return loadPlaylists();
       if (route === "trending") return loadHome("trending?region=JP", "急上昇");
+      if (route === "news") return loadNews();
       if (route === "subscriptions") return loadSubscriptions();
       return loadHome();
     }));
