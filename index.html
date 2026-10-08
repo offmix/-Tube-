@@ -1249,7 +1249,8 @@
       downloadStream: null,
       nextItems: [],
       watchPlaylistId: null,
-      abortController: null
+      abortController: null,
+      playbackGeneration: 0
     };
 
     const $ = (selector) => document.querySelector(selector);
@@ -2442,6 +2443,7 @@
     function stopPlayback() {
       const player = $("#player");
       const audio = $("#audioPlayer");
+      state.playbackGeneration += 1;
       if (player) {
         player.pause();
         player.removeAttribute("src");
@@ -2573,15 +2575,22 @@
     function syncAudioToVideo() {
       const player = $("#player");
       const audio = $("#audioPlayer");
-      if (!audio.src || !Number.isFinite(player.currentTime)) return;
-      if (!Number.isFinite(audio.currentTime) || Math.abs(audio.currentTime - player.currentTime) > 0.25) {
+      if (!audio.src || !Number.isFinite(player.currentTime) || audio.readyState < HTMLMediaElement.HAVE_METADATA) return;
+      const drift = player.currentTime - audio.currentTime;
+      const baseRate = player.playbackRate || 1;
+      if (!Number.isFinite(drift)) return;
+      if (Math.abs(drift) > 0.9) {
         try { audio.currentTime = player.currentTime; } catch (_) {}
       }
+      audio.playbackRate = !player.paused && Math.abs(drift) > 0.04
+        ? baseRate * Math.min(1.04, Math.max(0.96, 1 + drift * 0.08))
+        : baseRate;
     }
 
     function setPlayerStream(stream, preservePosition = false) {
       const player = $("#player");
       const audio = $("#audioPlayer");
+      const generation = ++state.playbackGeneration;
       const wasPlaying = !player.paused && !player.ended;
       const currentTime = preservePosition ? player.currentTime : 0;
       state.currentStream = stream;
@@ -2598,6 +2607,7 @@
         audio.playbackRate = player.playbackRate;
       }
       player.addEventListener("loadedmetadata", () => {
+        if (generation !== state.playbackGeneration || state.currentStream !== stream) return;
         if (preservePosition && Number.isFinite(currentTime)) {
           player.currentTime = Math.min(currentTime, Number.isFinite(player.duration) ? player.duration : currentTime);
         }
@@ -3014,6 +3024,7 @@
     $("#player").addEventListener("pause", () => $("#audioPlayer").pause());
     $("#player").addEventListener("waiting", () => $("#audioPlayer").pause());
     $("#player").addEventListener("seeking", syncAudioToVideo);
+    $("#player").addEventListener("seeked", syncAudioToVideo);
     $("#player").addEventListener("timeupdate", syncAudioToVideo);
     $("#player").addEventListener("ratechange", () => {
       $("#audioPlayer").playbackRate = $("#player").playbackRate;
@@ -3028,6 +3039,10 @@
       audio.currentTime = 0;
     });
     $("#audioPlayer").addEventListener("loadedmetadata", syncAudioToVideo);
+    $("#audioPlayer").addEventListener("canplay", () => {
+      syncAudioToVideo();
+      if (!$("#player").paused && !$("#player").ended) $("#audioPlayer").play().catch(() => {});
+    });
     $("#settingsButton").addEventListener("click", () => {
       applySettings(readSettings());
       $("#settingsBackdrop").classList.remove("hidden");
